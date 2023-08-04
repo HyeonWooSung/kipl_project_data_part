@@ -1,0 +1,24 @@
+CREATE VIEW test_data_set2.baby_food_view(food_name,
+ingredient_name,
+ingredient_index,
+ingredient_gram,
+calorie,
+carbohydrate,
+protein,
+fat,
+fiber,
+calcium,
+phosphorus,
+iron,
+sodium,
+potassium,
+vitamin_A,
+thiamine,
+riboflavin,
+niacin,
+vitamin_C) AS (
+  SELECT
+    *
+  FROM
+    `jnu-idv-05.test_data_set2.baby_food_tbl`
+);
