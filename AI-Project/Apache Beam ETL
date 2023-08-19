@@ -1,0 +1,497 @@
+import apache_beam as beam
+from apache_beam.runners.interactive.interactive_runner import InteractiveRunner
+import apache_beam.runners.interactive.interactive_beam as ib
+import csv
+import pandas as pd
+import re
+from collections import OrderedDict
+import glob
+from google.cloud import bigquery
+from google.oauth2 import service_account
+import mysql.connector
+import uuid
+import binascii
+from google.cloud import storage
+import random
+
+# 서비스 계정 키 JSON 파일 경로
+# 키 : jnu-team-03-2-79e382adc425.json
+key_path = glob.glob("jnu-team-03-2-79e382adc425.json")[0]
+
+# Google Cloud의 서비스 계정 키 파일 경로
+KEY_PATH = "jnu-team-03-2-79e382adc425.json"
+
+# Credentials 객체 생성
+credentials = service_account.Credentials.from_service_account_file(KEY_PATH)
+# 빅쿼리 클라이언트 객체 생성
+client = bigquery.Client(credentials = credentials, project = credentials.project_id)
+
+def get_evaluation(x):
+    temp_list = []
+    def select_evaluation(x):
+        select = 'select food_evaluation, food_name  from food_evaluation where person_id = UNHEX("{}")'
+        select = select.format(x)
+    
+        cursor.execute(select)
+        results = cursor.fetchall()
+        return results
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        
+        result = select_evaluation(x)
+        
+        
+        connection.commit()
+        for i in result:
+            temp_list.append(i)
+        
+        return list(set(temp_list))
+    except mysql.connector.Error as error:
+        print("Error:", error)
+
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+            print("Connection closed2")
+
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'48420e96a9dc49cdbb0fe04418112cdb'
+#b'48420e96a9dc49cdbb0fe04418112cdb'
+#b'e14e4fdfa7b94e2ab1310fe101c6567a'
+#b'e14e4fdfa7b94e2ab1310fe101c6567a'
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'10c806816107447eb05e22eb4e90cf80'
+#b'48420e96a9dc49cdbb0fe04418112cdb'
+
+
+db_config = {
+    'user': 'root',
+    'password': 'raZdeq-6xukve-qystoq',
+    'host': '34.64.169.138',
+    'database': 'kipl_database'
+}
+
+def bq_select(x):
+    temp_list = []
+    query = 'select * from {}'
+    query = query.format(x)
+    
+    query_job = client.query(query)
+    return query_job
+
+# query = """
+#     select * from `jnu-team-03-2.kipl_bigquery_database.menu_board`
+# """
+
+temp_board = bq_select('jnu-team-03-2.kipl_bigquery_database.menu_board')
+
+
+for i in temp_board:
+    a = i[1]
+menu_board = []
+food = []
+different_food = []
+
+
+for m in a:
+    menu_board.append(m['morning'])
+    menu_board.append(m['lunch'])
+    menu_board.append(m['dinner'])
+
+
+cleaned_flat_list = [x.strip() for x in menu_board]  
+menu_board = list(OrderedDict.fromkeys(cleaned_flat_list))
+
+temp_food = bq_select('jnu-team-03-2.kipl_bigquery_database.food')
+
+for i in temp_food:
+    food.append(i[0])
+
+
+# 중복된 이름을 저장할 빈 리스트
+duplicates = []
+
+for i in menu_board:
+    if i not in food:
+        different_food.append(i)
+
+food_dict = {key: 1 for key in food}
+
+def get_ingredient():
+    temp = []
+    b_query = 'select a.food_name, b.ingredient_name from `jnu-team-03-2.kipl_bigquery_database.food` as a join `jnu-team-03-2.kipl_bigquery_database.food` as b on a.food_name = b.food_name'
+    query_job = client.query(b_query)
+    for i in query_job:
+        temp.append(i)
+    return temp
+
+# uuid : b'4611777ff5ba4a36aecb5237d49653bc', b'10c806816107447eb05e22eb4e90cf80' b'3d838a8f0f5b415382940f4a3e7841b5' b'092592cd7ce94ab5a6088e81c8261d3`
+
+
+
+    
+
+    
+class Allergy_Value_DoFn():
+    def __init__(self,food_value,uuid):
+        self.uuid = uuid
+        self.value = food_value[0]
+        self.temp = None
+        self.allergy = None
+        self.allergy_food = None
+        
+    def process(self):
+        temp = get_evaluation(self.uuid)  # get_evaluation 함수에 대한 구현이 필요함
+        print(temp,'===================')
+        for i in temp:
+            if i[0] == 0:
+                self.value[i[1]] = 0
+            elif i[0] == 1:
+                self.value[i[1]] /= 2
+        
+    def join_person_ingredient(self):
+        temp = []
+        select = 'select a.person_id, b.ingredient_name from personal_allergy a join ingredient b on a.allergy_name = b.allergy_name'
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        cursor.execute(select)
+        results = cursor.fetchall()
+        try:
+            for i in results:
+                temp.append((binascii.hexlify(i[0]), i[1]))
+            self.temp = temp
+        except mysql.connector.Error as error:
+            print("Error:", error)
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
+                print("Connection closed1")
+                
+    def find_UUID_allergy(self):
+        allergy = []
+        for i in self.temp:
+            if self.uuid == i[0].decode('utf-8'):
+                allergy.append(i[1])
+        self.allergy = allergy
+        
+    def get_allergy_food(self):
+        temp = []
+        food = get_ingredient()
+        for i in self.allergy:
+            for j in food:
+                if i in j[1]:
+                    temp.append(j[0])
+        self.allergy_food = list(set(temp))
+        print(self.allergy_food)
+    def result(self):
+        for i in self.allergy_food:
+            if i in self.value.keys():
+                self.value[i] = 0
+    
+    def __call__(self, a):
+        self.process()
+        self.join_person_ingredient()
+        self.find_UUID_allergy()
+        self.get_allergy_food()
+        self.result()
+        yield self.value
+
+def change_value_to_num(data):
+    query = 'select * from `jnu-team-03-2.kipl_bigquery_database.food_category2`'
+    query_job = client.query(query)
+
+    category = []
+    food_name = []
+    cluster = []
+
+    for i in query_job:
+        category.append(i[0])
+        food_name.append(i[1])
+        cluster.append(i[2])
+
+
+    table = {
+        'category' : category,
+        'food_name' : food_name,
+        'cluster' : cluster
+    }
+    
+    df = pd.DataFrame(table)
+    
+    cluster_dict = dict()
+
+    cluster_dict = {x : [] for x in df['cluster']}
+    for cluster,name in zip(df['cluster'],df['food_name']):
+        cluster_dict[cluster].append(name)
+    
+    clustered_data = {}
+    for i in cluster_dict:
+        clustered_data[i] = []
+        for j in data:
+            if j in cluster_dict[i]:
+                clustered_data[i].append(data[j])
+    return clustered_data
+
+def change_value_to_dict(data):
+    query = 'select * from `jnu-team-03-2.kipl_bigquery_database.food_category2`'
+    query_job = client.query(query)
+
+    category = []
+    food_name = []
+    cluster = []
+
+    for i in query_job:
+        category.append(i[0])
+        food_name.append(i[1])
+        cluster.append(i[2])
+
+
+    data = {
+        'category' : category,
+        'food_name' : food_name,
+        'cluster' : cluster
+    }
+    
+    df = pd.DataFrame(data)
+    
+    cluster_dict = dict()
+
+    cluster_dict = {x : [] for x in df['cluster']}
+    for cluster,name in zip(df['cluster'],df['food_name']):
+        cluster_dict[cluster].append(name)
+    return cluster_dict
+
+
+
+def num_to_average(num_dict):
+    result_dict = {}  # 새로운 결과 사전을 만듦
+    for i in num_dict:
+        denominator = len(num_dict[i]) - num_dict[i].count(0)
+        # 리스트 내의 각 요소를 평균으로 변환하여 새 리스트에 저장
+        new_values = [j/denominator if j != 0 else 0 for j in num_dict[i]]
+        result_dict[i] = new_values  # 변환된 값을 새로운 사전에 저장
+    return result_dict
+
+
+class ProcessResultDoFn(beam.DoFn):
+    def __init__(self):
+        self.temp = []
+        self.temp2 = []
+
+    def process(self, element):
+        self.temp.append(element)
+        if len(self.temp) <= 1:
+            self.temp = self.temp
+        else:
+            for i in self.temp:
+                self.temp2.append(i)
+            yield self.temp2
+    
+    
+def choose_indices_with_probability(prob_list):
+    query = 'SELECT * FROM `jnu-team-03-2.kipl_bigquery_database.menu_category` ORDER BY day ASC;'
+    
+    query_job = client.query(query)
+
+    day = []
+    morning = []
+    lunch = []
+    dinner = []
+
+    for i in query_job:
+        day.append(i[0])
+        morning.append(i[1])
+        lunch.append(i[2])
+        dinner.append(i[3])
+
+
+    data = {
+        'day' : day,
+        'morning' : morning,
+        'lunch' : lunch,
+        'dinner' : dinner
+    }
+    
+    df_menu = pd.DataFrame(data)
+
+    menu_dict_morning = {x : [] for x in range(df_menu['morning'].max()+1)}
+    menu_dict_lunch = {x : [] for x in range(df_menu['morning'].max()+1)}
+    menu_dict_dinner  = {x : [] for x in range(df_menu['morning'].max()+1)}
+    
+    
+    
+    menu_dict = dict()
+    result = dict()
+    list = []
+    another_list = []
+    num = 0
+    if isinstance(prob_list[0][0][0],float) or isinstance(prob_list[0][0][0],int):
+        list = prob_list[0]
+        another_list = prob_list[1]
+    else:
+        list = prob_list[1]
+        another_list = prob_list[0]
+
+    for time in ['morning','lunch','dinner']:
+        new_dict = {x : [] for x in range(len(prob_list[-1]))}
+        df_menu_num = df_menu[time]
+        
+        for i in list:
+            num_choices = len(df_menu_num[df_menu[time] == i])
+            if all(p == 0 for p in list[i]):
+                new_dict[i] = []
+            else:    
+                selected_indices = random.choices(range(len(list[i])), weights=list[i], k=num_choices)
+                new_dict[i] = selected_indices
+        menu_dict[time] = new_dict
+    result_dict = {x : [] for x in range(len(prob_list[-1]))}
+    
+    for index in menu_dict['morning']:
+        result_list = []
+        for map_index in menu_dict['morning'][index]:
+            result_list.append(another_list[index][map_index])
+        result_dict[index] = result_list
+    menu_dict['morning'] = result_dict
+    
+    result_dict = {x : [] for x in range(len(prob_list[-1]))}
+    
+    for index in menu_dict['lunch']:
+        result_list = []
+        for map_index in menu_dict['lunch'][index]:
+            result_list.append(another_list[index][map_index])
+        result_dict[index] = result_list
+    menu_dict['lunch'] = result_dict
+    
+    result_dict = {x : [] for x in range(len(prob_list[-1]))}
+    
+    for index in menu_dict['dinner']:
+        result_list = []
+        for map_index in menu_dict['dinner'][index]:
+            result_list.append(another_list[index][map_index])
+        result_dict[index] = result_list
+    menu_dict['dinner'] = result_dict
+   
+    
+    return menu_dict
+            
+def Create_result(data):
+    df_menu = pd.read_csv('menu_category.csv')
+    morning_menu = [ x for x in df_menu['morning']]
+    lunch_menu = [ x for x in df_menu['lunch']]
+    dinner_menu = [ x for x in df_menu['dinner']]
+
+    morning_result = []
+    lunch_result = []
+    dinner_result = []
+    day = [x for x in range(1,181)]
+
+    # for time in data['morning']:
+    #     for index in data['morning'][time]:
+
+    for menu in [morning_menu, lunch_menu, dinner_menu]:
+        for i in menu:
+            if menu == morning_menu:
+                morning_result.append(data['morning'][i].pop())
+            elif menu == lunch_menu:
+                lunch_result.append(data['lunch'][i].pop())
+            else:
+                dinner_result.append(data['dinner'][i].pop())
+            
+    menu_board = {
+        'day': day,
+        'morning': morning_result,
+        'lunch': lunch_result,
+        'dinner': dinner_result
+    }
+    
+    
+    print(menu_board['day'])
+    return menu_board
+
+
+from apache_beam.options.pipeline_options import GoogleCloudOptions
+from apache_beam.options.pipeline_options import PipelineOptions, GoogleCloudOptions
+import apache_beam as beam
+from apache_beam.io.avroio import WriteToAvro
+
+pipeline_options = PipelineOptions()
+google_cloud_options = pipeline_options.view_as(GoogleCloudOptions)
+google_cloud_options.temp_location = 'gs://jnu-idv-05-data/menu_board'
+
+# b'e14e4fdfa7b94e2ab1310fe101c6567a'
+# b'10c806816107447eb05e22eb4e90cf80'
+def transform_data(element, person_id):
+    menu_board = [
+        {
+            'day': element['day'],
+            'morning': element['morning'],
+            'lunch': element['lunch'],
+            'dinner': element['dinner']
+        }
+    ]
+    return {
+        'person_id': person_id,
+        'menu': menu_board
+    }
+
+class WriteToBigQuery(beam.PTransform):
+    def __init__(self, table_name, gcs_temp_location):
+        self.table_name = table_name
+        self.gcs_temp_location = gcs_temp_location
+    def expand(self, pcoll):
+        return (
+            pcoll
+            | 'Write to BigQuery' >> beam.io.WriteToBigQuery(
+                self.table_name,
+                create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
+                custom_gcs_temp_location=self.gcs_temp_location
+            )
+        )
+    
+
+
+with beam.Pipeline(options=pipeline_options) as p:
+    temp = []
+    # Assuming input_data is read from a source
+    input_data = [{key: 1 for key in food}]  # 딕셔너리의 키를 리스트로 변환
+    uuid = b'10c806816107447eb05e22eb4e90cf80'
+    table_name = 'jnu-idv-05.young_food.menu_board'
+    gcs_temp_location = 'gs://jnu-idv-05-data/menu_board'
+    
+    # Apply the custom DoFn to process and change values
+    changed_values = (
+        p | "Create input collection" >> beam.Create(input_data)
+          | "Change values" >> beam.ParDo(Allergy_Value_DoFn(input_data,uuid.decode('utf-8'))) 
+        )
+    changed_values2 = (
+        changed_values | "value to dict" >> beam.Map(change_value_to_dict)
+                       # | beam.Map(print)
+    )
+    
+    changed_values3 = (
+        changed_values | "dict to num" >> beam.Map(change_value_to_num)
+                       # | beam.Map(print)
+                       | "num to average" >> beam.Map(num_to_average)
+    )
+    
+    #  #파이프라인 내에서 DoFn 적용
+    result = (
+        (changed_values2, changed_values3) 
+        | "Flatten" >> beam.Flatten()
+        | "Process Result" >> beam.ParDo(ProcessResultDoFn())
+        | "random result" >> beam.Map(choose_indices_with_probability)
+        | "Create result" >> beam.Map(Create_result)
+        # | 'Transform Data' >> beam.Map(transform_data,uuid.decode('utf-8'))
+        # | 'Write to Avro' >> WriteToAvro(file_path_prefix='gs://your-bucket/avro_output/', schema=avro_schema)
+    )
+    
+
