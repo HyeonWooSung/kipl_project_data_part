@@ -4,6 +4,8 @@ glob, bigquery from google.cloud, service_account from google.oauth2, mysql.conn
 uuid, binascii, storage from google.cloud, random, GoogleCloudOptions from apache_beam.options.pipeline_options
 PipelineOptions, GoogleCloudOptions from apache_beam.options.pipeline_options, os
 
+# PipLine 도표 url : https://console.cloud.google.com/dataflow/jobs/us-central1/2023-08-20_23_40_32-3146643747681291992;graphView=0?pageState=(%22dfTime%22:(%22s%22:%222023-08-21T06:40:33.156Z%22,%22e%22:%222023-08-21T06:45:35.828Z%22))&project=jnu-idv-05
+
 # 사용 API : Vertual AI's Jupyter Notebook, GCP, Apache Beam, Cloud Storage, Big Query, VM Instance, Data Flow
 
 
